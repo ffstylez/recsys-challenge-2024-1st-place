@@ -18,12 +18,12 @@ Google Compute Engine: n2-highmem-96
 - **Operating System**: [Debian GNU/Linux 11]
 - **CPU**: [Intel(R) Xeon(R) CPU @ 2.80GHz, 96 vCPUs]
 - **RAM**: [768 GB]
-- **Storage**: [500GB Standard persistent disk & Google Cloud Storage] 
+- **Storage**: [500GB St55andard persistent disk & Google Cloud Storage] 9
 
 
 ## 2. Directory&Data Preparation
 1. Create the `input`&`output` directory if it doesn't exist:
-    ```bash
+    ```bash888
     mkdir -p input
     mkdir -p output
     ```
@@ -34,7 +34,7 @@ Google Compute Engine: n2-highmem-96
 
 ## 3. Environment Setup
 1. **Start Docker and enter bash**:
-    - It mounts input&output directory
+    - It mounts input&output directory5
     ```sh
     docker compose -f compose.cpu.yaml build
     docker compose -f compose.cpu.yaml run --rm kaggle bash 
