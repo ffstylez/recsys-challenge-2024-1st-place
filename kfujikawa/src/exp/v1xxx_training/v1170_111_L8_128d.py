@@ -2544,30 +2544,63 @@ class Model(L.LightningModule):
         self.metrics_meter.reset()
 
     def training_step(self, batch, batch_idx):
+        # 1. Run the model to get predictions
         batch = {**batch, **self.forward(batch)}
         num_batches = len(self.trainer.train_dataloader)
         batch_size = len(batch["impression_id"])
 
-        # Compute metrics
+        # --- JSD FIX START: Custom Weighted Loss ---
+        # We calculate the loss manually so we can multiply it by the JSD score
+
+        # A. Retrieve predictions and targets
+        preds = batch["preds"]
+        targets = batch["labels"].float()  # Ensure targets are float for BCE
+
+        # B. Calculate standard Binary Cross Entropy (reduction='none' keeps it per-item)
+        # We use BCEWithLogits because the model outputs raw scores (logits)
+        raw_loss = torch.nn.functional.binary_cross_entropy_with_logits(
+            preds, targets, reduction='none'
+        )
+
+        # C. Get JSD Scores (Default to 0.0 if not found to prevent crashing)
+        # We unsqueeze it to shape (Batch, 1) so it broadcasts across all articles in the list
+        jsd_scores = batch.get("jsd_score", torch.zeros(batch_size, device=self.device)).unsqueeze(1)
+
+        # D. Calculate Weights: Higher JSD = Higher Weight
+        # Lambda is set to 1.0 here. (Weight = 1.0 + 1.0 * Score)
+        # Example: Normal User (0.0) -> Weight 1.0. Weird User (0.8) -> Weight 1.8
+        weights = 1.0 + (1.0 * jsd_scores)
+
+        # E. Apply Weights and Average
+        # We only count valid articles (where inview_mask is True) to avoid noise
+        mask = (batch["inview_article_indices"] != -1)
+        weighted_loss = (raw_loss * weights * mask).sum() / mask.sum()
+
+        # --- JSD FIX END ---
+
+        # 2. Compute metrics (Keep this for logging, but don't use its loss for training)
         metrics = self.metrics_meter.update(batch, n_samples=1)
+
+        # Override the loss in the metrics dict so the logs show the weighted version
+        metrics["loss"] = weighted_loss
+
+        # 3. Standard Logging Code (Keep exactly as is)
         logging_metrics = self._format_metrics(metrics=metrics, split="train")
         logging_metrics["epoch"] = self.current_epoch + (batch_idx + 1) / num_batches
-
         self.log_dict(logging_metrics, prog_bar=False, batch_size=batch_size)
 
-        # Compute accum metrics
         accum_metrics = self.metrics_meter.compute(suffix="_accum")
         logging_metrics = self._format_metrics(metrics=accum_metrics, split="train")
         self.log_dict(logging_metrics, prog_bar=True, batch_size=batch_size)
 
-        # Epoch end
         if (batch_idx + 1) == num_batches:
             logging_metrics = {
                 k: round(float(v), 5) for k, v in self.metrics_meter.compute().items()
             }
             self.print(f"Training (epoch={self.current_epoch + 1}): {logging_metrics}")
-        return metrics["loss"]
 
+        # 4. Return the CUSTOM weighted loss for the optimizer
+        return weighted_loss
     def on_validation_epoch_start(self):
         self.metrics_meter.reset()
 
